@@ -1,46 +1,90 @@
 ## Process this file with automake to produce Makefile.in
 AUTOMAKE_OPTIONS = no-texinfo.tex
 
-bin_PROGRAMS = indent
-indent_SOURCES = args.c comments.c indent.c lexi.c parse.c backup.c globs.c io.c
-noinst_HEADERS = backup.h indent.h sys.h lexi.h args.h comments.h globs.h io.h parse.h
+SUBDIRS = intl src doc po man
 
-info_TEXINFOS = indent.texinfo
-man_MANS = indent.1
+BUILT_SOURCES = 
 
-BUILT_SOURCES = indent.1 README ChangeLog gperf.c indent.html indent_foot.html indent_toc.html
-EXTRA_DIST = $(BUILT_SOURCES) indent.gperf ChangeLog-1990 ChangeLog-1998
+EXTRA_DIST = 	README \
+		config/config.rpath config/mkinstalldirs \
+		ChangeLog-1990 ChangeLog-1998 ChangeLog-2001 \
+		miscel/make-decc.com miscel/vaxc-make.com miscel/gnuc-make.com \
+		aclocal/UTIMBUF.m4 \
+		miscel/Makefile.mingw32 \
+		miscel/makefile.watcom \
+		miscel/README.vc++ \
+		miscel/README.VMS \
+		bootstrap \
+		regression
 
-lexi.o: $(srcdir)/lexi.c $(srcdir)/sys.h config.h $(srcdir)/indent.h @MAINTAINER_MODE_TRUE@ gperf.c
-	$(COMPILE) -c $(srcdir)/lexi.c
+DISTCLEANFILES=config/config.cache config/config.log config.h
 
-gperf.c: @MAINTAINER_MODE_TRUE@ indent.gperf
-	gperf -D -c -p -t -T -g -j1 -o -K rwd -N is_reserved indent.gperf > gperf.c
+ps:
+	cd doc && $(MAKE) @PACKAGE@.ps
 
-DISTCLEANFILES=config.cache config.log config.h
+pdf:
+	cd doc && $(MAKE) @PACKAGE@.pdf
+
+html:
+	cd doc && $(MAKE) html
+
+html-split:
+	cd doc && $(MAKE) html-split
 
 # --------------- Maintainer's Section
 
-MAINTAINERCLEANFILES=aclocal.m4 Makefile.in config.h.in stamp-h.in configure \
-	ChangeLog texinfo2man indent.1 gperf.c \
-	indent-1.spec index.html cvslog-*.html indent.html indent_*.html
+MAINTAINERCLEANFILES = intl/* aclocal.m4 Makefile.in config.h.in stamp-h1 stamp-h.in configure \
+	@PACKAGE@-1.spec \
+	@PACKAGE@.lsm indent-2.spec .gdbinit \
+	INSTALL ABOUT-NLS 
 
 ## Use -g when in maintainer mode
 if MAINTAINER_MODE
-CFLAGS=-g
+CFLAGS=-g -I.
 else
-CFLAGS=@CFLAGS@
+CFLAGS=@CFLAGS@ -I.
 endif
 
-## Bug in automake: Can't use `if MAINTAINER_MODE'
-@MAINTAINER_MODE_TRUE@include $(srcdir)/maintMakefile
+if MAINTAINER_MODE
+README: Makefile miscel/README.in configure.ac
+	sed -e 's%!VERSION!%@VERSION@%g'  miscel/$@.in > $@
 
-## Can't put this in the maintMakefile for some reason.
-maintainer-clean-local:
-	echo "all:" > Makefile
-	echo -e "\tautoheader" >> Makefile
-	echo -e "\tautomake --foreign" >> Makefile
-	echo -e "\taclocal" >> Makefile
-	echo -e "\tautoconf" >> Makefile
-	echo -e "\tautoheader" >> Makefile
-	echo -e "\tconfigure --enable-maintainer-mode --prefix=/home/carlo" >> Makefile
+
+miscel/Makefile.mingw32 miscel/makefile.watcom :%: %.in
+	cat $@.in | perl -e 'while (<>) {chomp; print "$$_\015\012"; }'  > $@
+
+miscel/README.vc++ miscel/README.VMS @PACKAGE@.lsm :%: Makefile %.in
+	sed -e 's%!VERSION!%@VERSION@%g' $@.in > $@
+
+tar:
+	$(MAKE) dist
+	install -D @PACKAGE@-@VERSION@.tar.gz $(REDHAT)/SOURCES/@PACKAGE@-@VERSION@.tar.gz
+
+WWWDIR=/home/david/www/@PACKAGE@
+REDHAT:=$(shell grep '^%_topdir' rpm/macros | cut -d \  -f 2)
+SPECFILE=@PACKAGE@-${shell echo "@VERSION@" | cut -d. -f1}.spec
+
+rpm: tar $(SPECFILE)
+	rpm --rcfile=/usr/lib/rpm/rpmrc:rpm/rpmrc --target=$(TARGET) --sign --clean -ba $(SPECFILE)
+
+$(SPECFILE): rpm/$(SPECFILE).in configure.ac
+	cvs commit rpm/$(SPECFILE).in
+	sed -e 's/!VERSION!/@VERSION@/g' rpm/$(SPECFILE).in | grep -B2000 '!CHANGELOG!' | grep -v '!CHANGELOG!' > $(SPECFILE)
+	echo -n "%changelog" >> $(SPECFILE)
+	cvs log rpm/$(SPECFILE).in | \
+	  grep -A2000 '^-----' | \
+	  egrep -v '^-----|^=====|^revision' | \
+	  awk -F'[ ;]' --assign lastdate="" '{ if ($$0~/^date: /) { \
+	    if (lastdate != $$2) { \
+	      lastdate=$$2; \
+	      printf("\n* "); \
+	      system("echo -n `date --date \""$$2" "$$3"\" \"+%a %b %d %Y\"`"); \
+	      printf(" $(AUTHOR)\n"); \
+	    } \
+	  } else if ($$0~/^[A-Z]/) { printf("- %s\n", $$0); } else if ($$0~/./) { printf("  %s\n", $$0); } else {print} }' >> $(SPECFILE)
+	grep -A2000 '!CHANGELOG!' rpm/$(SPECFILE).in | grep -v '!CHANGELOG!' >> $(SPECFILE)
+
+endif
+
+
+ACLOCAL_AMFLAGS = -I m4
